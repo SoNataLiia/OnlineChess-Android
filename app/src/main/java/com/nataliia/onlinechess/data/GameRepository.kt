@@ -75,7 +75,17 @@ class GameRepository(
             }
             check(current.status == "PLAYING") { "Партия не активна" }
             val myTurn = (current.turn == "WHITE" && current.whiteId == uid) || (current.turn == "BLACK" && current.blackId == uid)
-            check(myTurn) { "Сейчас ход соперника" }
+           // check(myTurn) { "Сейчас ход соперника" }
+            if (!myTurn) {
+                // TEST EVIDENCE: Record that a move was rejected because
+                // the authenticated player does not own the current turn.
+                android.util.Log.d(
+                    "CHESS_TEST",
+                    "REJECTED | wrong turn | serverTurn=${current.turn} | uid=$uid"
+                )
+
+                error("Сейчас ход соперника")
+            }
             val nextTurn = if (current.turn == "WHITE") "BLACK" else "WHITE"
             tx.update(ref, mapOf(
                 "fen" to newFen, "lastMove" to move, "turn" to nextTurn,

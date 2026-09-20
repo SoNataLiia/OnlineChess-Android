@@ -128,6 +128,13 @@ class ChessViewModel : ViewModel() {
         launchAction {
             val currentGame = requireNotNull(game)
 
+//            // TEST-02 ONLY: Force the client-side game object to treat this player
+//            // as the current player. Firestore must still reject the request if
+//            // the authoritative server turn belongs to the opponent.
+//            val testGame = currentGame.copy(
+//                turn = if (currentGame.whiteId == repository.uid) "WHITE" else "BLACK"
+//            )
+
             val result = ChessEngine.move(
                 fen = currentGame.fen,
                 fromRow = from.first,
@@ -150,6 +157,17 @@ class ChessViewModel : ViewModel() {
                 "SUBMIT attempt | expectedFen=${currentGame.fen} | newFen=${result.fen} | move=${result.notation}"
             )
 
+//            // TEST-02 ONLY: Submit the move using a locally manipulated game state.
+//            // The client claims that it owns the turn, but Firestore remains authoritative.
+//            repository.submitMove(
+//                game = testGame,
+//                expectedFen = currentGame.fen,
+//                newFen = result.fen,
+//                move = result.notation,
+//                status = result.status,
+//                winnerId = winnerId
+//            )
+
             repository.submitMove(
                 game = currentGame,
                 expectedFen = currentGame.fen,
@@ -158,16 +176,40 @@ class ChessViewModel : ViewModel() {
                 status = result.status,
                 winnerId = winnerId
             )
-            // TEST ONLY: Replay the exact same move using the same expected state.
-            // The first submission should be accepted; this replay should be rejected
-            // because Firestore has already moved to a newer authoritative state.
+//            // TEST ONLY: Replay the exact same move using the same expected state.
+//            // The first submission should be accepted; this replay should be rejected
+//            // because Firestore has already moved to a newer authoritative state.
+//            repository.submitMove(
+//                game = currentGame,
+//                expectedFen = currentGame.fen,
+//                newFen = result.fen,
+//                move = result.notation,
+//                status = result.status,
+//                winnerId = winnerId
+//            )
+        }
+    }
+
+    // TEST-02 ONLY: Attempt to submit a move directly from this client,
+    // bypassing the normal UI turn restriction.
+    // The repository must still reject the request if this client
+    // does not own the authoritative turn.
+    fun testWrongTurnMove() {
+        launchAction {
+            val currentGame = requireNotNull(game)
+
+            android.util.Log.d(
+                "CHESS_TEST",
+                "TEST-02 attempt | clientUid=${repository.uid} | serverTurn=${currentGame.turn}"
+            )
+
             repository.submitMove(
                 game = currentGame,
                 expectedFen = currentGame.fen,
-                newFen = result.fen,
-                move = result.notation,
-                status = result.status,
-                winnerId = winnerId
+                newFen = currentGame.fen,
+                move = "TEST-WRONG-TURN",
+                status = currentGame.status,
+                winnerId = currentGame.winnerId
             )
         }
     }
@@ -253,6 +295,8 @@ private fun OnlineChessApp(
                         game = currentGame,
                         uid = viewModel.myUid(),
                         onMove = viewModel::makeMove,
+                        // TEST-02 ONLY: Connect the temporary wrong-turn test action.
+                        onTestWrongTurn = viewModel::testWrongTurnMove,
                         onExit = viewModel::backToLobby
                     )
                 }
@@ -418,6 +462,8 @@ private fun GameScreen(
         Pair<Int, Int>,
         Pair<Int, Int>
     ) -> Unit,
+    // TEST-02 ONLY: Trigger a direct wrong-turn submission.
+    onTestWrongTurn: () -> Unit,
     onExit: () -> Unit
 ) {
     var selectedSquare by remember(game.fen) {
@@ -463,6 +509,12 @@ private fun GameScreen(
                 onClick = onExit
             ) {
                 Text("← Выйти")
+            }
+            // TEST-02 ONLY: Manually attempt a move when it is not this client's turn.
+            Button(
+                onClick = onTestWrongTurn
+            ) {
+                Text("TEST-02: Wrong turn")
             }
 
             Text(
