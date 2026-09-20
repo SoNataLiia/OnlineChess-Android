@@ -141,7 +141,26 @@ class ChessViewModel : ViewModel() {
                 "BLACK" -> currentGame.blackId
                 else -> ""
             }
+            // TEST ONLY: Simulate network/processing delay before submitting the move.
+            // This creates a window to test stale-state and conflict handling.
+            kotlinx.coroutines.delay(5000)
 
+            android.util.Log.d(
+                "CHESS_TEST",
+                "SUBMIT attempt | expectedFen=${currentGame.fen} | newFen=${result.fen} | move=${result.notation}"
+            )
+
+            repository.submitMove(
+                game = currentGame,
+                expectedFen = currentGame.fen,
+                newFen = result.fen,
+                move = result.notation,
+                status = result.status,
+                winnerId = winnerId
+            )
+            // TEST ONLY: Replay the exact same move using the same expected state.
+            // The first submission should be accepted; this replay should be rejected
+            // because Firestore has already moved to a newer authoritative state.
             repository.submitMove(
                 game = currentGame,
                 expectedFen = currentGame.fen,

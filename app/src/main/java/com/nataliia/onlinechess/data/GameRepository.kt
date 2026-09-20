@@ -56,7 +56,23 @@ class GameRepository(
         val ref = db.collection("games").document(game.id)
         db.runTransaction { tx ->
             val current = tx.get(ref).toObject(Game::class.java) ?: error("Партия удалена")
-            check(current.fen == expectedFen) { "Позиция уже изменилась" }
+            // TEST EVIDENCE: Compare the client's expected board state with
+            // the authoritative state read from Firestore inside the transaction.
+            android.util.Log.d(
+                "CHESS_TEST",
+                "TRANSACTION check | expectedFen=$expectedFen | serverFen=${current.fen} | match=${current.fen == expectedFen}"
+            )
+
+            if (current.fen != expectedFen) {
+                // TEST EVIDENCE: Record that the move was rejected because the client
+                // attempted to submit a move from a stale board state.
+                android.util.Log.d(
+                    "CHESS_TEST",
+                    "REJECTED | stale state | expectedFen=$expectedFen | serverFen=${current.fen}"
+                )
+
+                error("Позиция уже изменилась")
+            }
             check(current.status == "PLAYING") { "Партия не активна" }
             val myTurn = (current.turn == "WHITE" && current.whiteId == uid) || (current.turn == "BLACK" && current.blackId == uid)
             check(myTurn) { "Сейчас ход соперника" }
@@ -66,6 +82,13 @@ class GameRepository(
                 "status" to status, "winnerId" to winnerId,
                 "finishedAt" to if (status == "FINISHED") System.currentTimeMillis() else null
             ))
+
+            // TEST EVIDENCE: Record that the transaction accepted the move
+            // after validating the authoritative Firestore state.
+            android.util.Log.d(
+                "CHESS_TEST",
+                "ACCEPTED | move=$move | expectedFen matched serverFen"
+            )
         }.awaitUnit()
     }
 
