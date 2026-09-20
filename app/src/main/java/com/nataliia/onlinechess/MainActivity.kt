@@ -127,6 +127,12 @@ class ChessViewModel : ViewModel() {
     ) {
         launchAction {
             val currentGame = requireNotNull(game)
+            // TEST-03 ONLY: Record the authoritative state from which
+            // the concurrent conflicting submissions will be created.
+            android.util.Log.d(
+                "CHESS_TEST",
+                "TEST-03 start | authoritativeFen=${currentGame.fen}"
+            )
 
 //            // TEST-02 ONLY: Force the client-side game object to treat this player
 //            // as the current player. Firestore must still reject the request if
@@ -150,7 +156,7 @@ class ChessViewModel : ViewModel() {
             }
             // TEST ONLY: Simulate network/processing delay before submitting the move.
             // This creates a window to test stale-state and conflict handling.
-            kotlinx.coroutines.delay(5000)
+            // kotlinx.coroutines.delay(5000)
 
             android.util.Log.d(
                 "CHESS_TEST",
@@ -211,6 +217,64 @@ class ChessViewModel : ViewModel() {
                 status = currentGame.status,
                 winnerId = currentGame.winnerId
             )
+        }
+    }
+    // TEST-03 ONLY: Prepare two different legal moves from the same
+    // initial game state. They will later be submitted concurrently
+    // to verify conflict handling against the authoritative Firestore state.
+    fun testConcurrentConflict() {
+        launchAction {
+            val currentGame = requireNotNull(game)
+
+            android.util.Log.d(
+                "CHESS_TEST",
+                "TEST-03 conflict start | expectedFen=${currentGame.fen}"
+            )
+
+            // TEST-03 ONLY: First legal move calculated from the shared initial state: e2-e4.
+            val firstMove = ChessEngine.move(
+                fen = currentGame.fen,
+                fromRow = 6,
+                fromCol = 4,
+                toRow = 4,
+                toCol = 4
+            )
+            // TEST-03 ONLY: Second legal move calculated from the same
+            // shared initial state: d2-d4.
+            val secondMove = ChessEngine.move(
+                fen = currentGame.fen,
+                fromRow = 6,
+                fromCol = 3,
+                toRow = 4,
+                toCol = 3
+            )
+
+            // TEST-03 ONLY: Submit two different moves concurrently.
+            // Both submissions use the same expected authoritative state.
+            kotlinx.coroutines.coroutineScope {
+
+                launch {
+                    repository.submitMove(
+                        game = currentGame,
+                        expectedFen = currentGame.fen,
+                        newFen = firstMove.fen,
+                        move = firstMove.notation,
+                        status = firstMove.status,
+                        winnerId = ""
+                    )
+                }
+
+                launch {
+                    repository.submitMove(
+                        game = currentGame,
+                        expectedFen = currentGame.fen,
+                        newFen = secondMove.fen,
+                        move = secondMove.notation,
+                        status = secondMove.status,
+                        winnerId = ""
+                    )
+                }
+            }
         }
     }
 
@@ -297,6 +361,8 @@ private fun OnlineChessApp(
                         onMove = viewModel::makeMove,
                         // TEST-02 ONLY: Connect the temporary wrong-turn test action.
                         onTestWrongTurn = viewModel::testWrongTurnMove,
+                        // TEST-03 ONLY: Connect the temporary concurrent-conflict test action.
+                        onTestConcurrentConflict = viewModel::testConcurrentConflict,
                         onExit = viewModel::backToLobby
                     )
                 }
@@ -462,6 +528,8 @@ private fun GameScreen(
         Pair<Int, Int>,
         Pair<Int, Int>
     ) -> Unit,
+    // TEST-03 ONLY: Trigger two concurrent conflicting submissions.
+    onTestConcurrentConflict: () -> Unit,
     // TEST-02 ONLY: Trigger a direct wrong-turn submission.
     onTestWrongTurn: () -> Unit,
     onExit: () -> Unit
@@ -510,11 +578,17 @@ private fun GameScreen(
             ) {
                 Text("← Выйти")
             }
-            // TEST-02 ONLY: Manually attempt a move when it is not this client's turn.
+//            // TEST-02 ONLY: Manually attempt a move when it is not this client's turn.
+//            Button(
+//                onClick = onTestWrongTurn
+//            ) {
+//                Text("TEST-02: Wrong turn")
+//            }
+            // TEST-03 ONLY: Trigger two concurrent moves from the same initial state.
             Button(
-                onClick = onTestWrongTurn
+                onClick = onTestConcurrentConflict
             ) {
-                Text("TEST-02: Wrong turn")
+                Text(text = "TEST-03: Conflict")
             }
 
             Text(
@@ -522,6 +596,7 @@ private fun GameScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
+
         }
 
         PlayerCard(

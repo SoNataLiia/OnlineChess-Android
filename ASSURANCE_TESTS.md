@@ -96,3 +96,78 @@ REJECTED | wrong turn | serverTurn=WHITE
 The unauthorized wrong-turn move was rejected by the Firestore transaction.
 The test demonstrates that turn ownership is verified against the authoritative
 Firestore state rather than relying only on the client UI.
+
+
+---
+
+## TEST-03 — Concurrent Conflicting Move Rejection
+
+### Objective
+
+Verify that two conflicting moves submitted concurrently from the same initial
+game state cannot both modify the authoritative Firestore state.
+
+### Hypothesis
+
+If two different legal moves are submitted concurrently using the same
+`expectedFen`:
+
+1. Both requests may begin from the same valid game state.
+2. Firestore transactions may initially evaluate both requests.
+3. Only one conflicting move should ultimately update the authoritative state.
+4. The other transaction should detect the changed state and be rejected as stale.
+
+### Test setup
+
+- Two Android emulator clients connected to the same online game.
+- Firebase Firestore used as the shared authoritative game-state store.
+- Room code: `967574`
+- Initial turn: `WHITE`
+- Two different legal moves were submitted concurrently from the same `expectedFen`:
+    - `e2-e4`
+    - `d2-d4`
+
+### Evidence
+
+The application displayed:
+
+```text
+Не получилось
+Позиция уже изменилась
+```
+
+The final synchronized game state showed:
+
+```text
+Последний ход: d2-d4
+```
+
+Logcat recorded the transaction sequence:
+
+```text
+TEST-03 conflict start
+
+TRANSACTION check
+ACCEPTED | move=d2-d4 | expectedFen matched
+
+TRANSACTION check
+ACCEPTED | move=e2-e4 | expectedFen matched
+
+TRANSACTION check
+REJECTED | stale state
+```
+
+The intermediate `ACCEPTED` log entries were produced while the transaction
+callbacks were evaluating the requests. One transaction was subsequently
+re-evaluated after the concurrent state change and rejected as stale.
+
+### Result
+
+**PASSED**
+
+Two conflicting submissions started from the same expected game state, but only
+one move became the final authoritative state. The competing transaction detected
+that the position had changed and was rejected instead of overwriting the newer state.
+
+This test provides evidence that concurrent conflicting updates converge to a
+single game state rather than producing two committed moves from the same position.
